@@ -33,22 +33,22 @@
 
 ```bash
 # Install the packages listed in a file
-python3 KaliArch.py ​​install-utilities utilities.txt
+python3 kaliarch.py ​​install-utilities utilities.txt
 
 # Uninstall the packages listed in a file
-python3 KaliArch.py ​​uninstall-utilities utilities.txt
+python3 kaliarch.py ​​uninstall-utilities utilities.txt
 
 # Apply the Kali-like theme
-python3 KaliArch.py ​​install-kalitheme
+python3 kaliarch.py ​​install-kalitheme
 
 # Apply the Kali-like theme with dynamic wallpaper
-python3 KaliArch.py ​​dynamic-background 5 randomize ~ kalitheme
+python3 kaliarch.py ​​dynamic-background 5 randomize ~ kalitheme
 
 # You can also use the default order instead of random
-python3 KaliArch.py ​​dynamic-background 5 ordered ~ kalitheme
+python3 kaliarch.py ​​dynamic-background 5 ordered ~ kalitheme
 
 # Remove the Kali-like theme and restore backups
-python3 KaliArch.py ​​uninstall-kalitheme
+python3 kaliarch.py ​​uninstall-kalitheme
 ```
 ---
 
