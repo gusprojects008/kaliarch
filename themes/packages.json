@@ -1,8 +1,9 @@
 {
   "System packages": {
     "kalitheme": {
+      "alacritty": "~/.config/alacritty.toml",
+      "tmux": ["~/.tmux", "~/.tmux.conf"],
       "feh": "~/.config/feh/.conf",
-      "kitty": "~/.config/kitty/kitty.conf",
       "picom": "~/.config/picom/picom.conf",
       "i3": "~/.config/i3/config",
       "i3lock": "~/.config/i3lock/i3lock.sh",
@@ -19,7 +20,8 @@
   },
   "Packages config": {
     "kalitheme": {
-      "kitty": "kalitheme/kitty.conf",
+      "alacritty": "kalitheme/alacritty.toml",
+      "tmux": ["kalitheme/.tmux", "kalitheme/.tmux.conf"],
       "picom": "kalitheme/picom.conf",
       "i3": "kalitheme/i3-config",
       "i3lock": "kalitheme/i3lock.sh",

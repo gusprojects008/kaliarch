@@ -58,8 +58,3 @@ python3 kaliarch.py ​​uninstall-kalitheme
 - Configure the terminal color, theme, or transparency if needed.
 - Adjust Kitty fonts if needed.
 - Set Zsh as the default shell.
-
----
-
-## References
-- [Kitty Themes](https://github.com/dexpota/kitty-themes)

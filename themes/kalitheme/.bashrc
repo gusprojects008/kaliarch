@@ -11,6 +11,10 @@ else
     eval "$(dircolors -b)"
 fi
 
+if [ -z "$TMUX" ] && [ -n "$DISPLAY" ]; then
+  tmux attach || tmux new
+fi
+
 alias ls='ls --color=auto'
 alias grep='grep --color=auto'
 alias fgrep='fgrep --color=auto'

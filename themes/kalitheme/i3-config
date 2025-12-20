@@ -49,10 +49,11 @@ floating_modifier $mod
 tiling_drag modifier titlebar
 
 # start a terminal
-bindsym $mod+Return exec kitty
+bindsym $mod+Return exec alacritty
+exec --no-startup-id alacritty
 
 # set keyboard layout
-exec --no-startup-id setxkbmap br abnt2
+exec --no-startup-id setxkbmap us intl
 
 # !!! KaliArch !!!
 #exec --no-startup-id bash -c 'while true; do mapfile -t W < <(find "$HOME/wallpapers" -maxdepth 1 -type f); feh --no-fehbg --bg-scale --randomize "${W[@]}"; sleep 5; done &'
