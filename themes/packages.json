@@ -23,7 +23,7 @@
       "alacritty": "kalitheme/alacritty.toml",
       "tmux": ["kalitheme/.tmux", "kalitheme/.tmux.conf"],
       "picom": "kalitheme/picom.conf",
-      "i3": "kalitheme/i3-config",
+      "i3": "kalitheme/i3config",
       "i3lock": "kalitheme/i3lock.sh",
       "zsh": "kalitheme/.zshrc",
       "bash": ["kalitheme/.bash_logout", "kalitheme/.bashrc", "kalitheme/.bashrc.original", "kalitheme/.bash_profile"],
