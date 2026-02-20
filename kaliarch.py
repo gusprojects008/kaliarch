@@ -8,9 +8,7 @@ import json
 import shutil
 import logging
 import argparse
-import hashlib
 import re
-from datetime import datetime
 from pathlib import Path
 
 class ColoredFormatter(logging.Formatter):
