@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # python 3.13
 
 import sys
@@ -9,6 +8,9 @@ import json
 import shutil
 import logging
 import argparse
+import hashlib
+import re
+from datetime import datetime
 from pathlib import Path
 
 class ColoredFormatter(logging.Formatter):
@@ -18,7 +20,7 @@ class ColoredFormatter(logging.Formatter):
     RED = "\x1b[31;20m"
     BOLD_RED = "\x1b[31;1m"
     RESET = "\x1b[0m"
-    
+
     FORMATS = {
         logging.DEBUG: GREY + "%(message)s" + RESET,
         logging.INFO: CYAN + "[*] %(message)s" + RESET,
@@ -27,42 +29,42 @@ class ColoredFormatter(logging.Formatter):
         logging.CRITICAL: BOLD_RED + "[CRITICAL] %(message)s" + RESET,
     }
 
-    def format(self, record):
-        log_fmt = self.FORMATS.get(record.levelno)
+    def format(self, record: logging.LogRecord) -> str:
+        log_fmt = self.FORMATS.get(record.levelno, "%(message)s")
         formatter = logging.Formatter(log_fmt)
         return formatter.format(record)
 
-def setup_logging():
-    handler = logging.StreamHandler()
+def setup_logging() -> None:
+    logger = logging.getLogger()
+    logger.setLevel(logging.INFO)
+    logger.handlers.clear()
+    handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(ColoredFormatter())
-    logging.basicConfig(level=logging.INFO, handlers=[handler])
+    logger.addHandler(handler)
+    logger.propagate = False
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 THEMES_DIR = SCRIPT_DIR / "themes"
 PACKAGES_JSON = THEMES_DIR / "packages.json"
-KALITHEME_PACKAGES_TXT = SCRIPT_DIR / "kalitheme-packages.txt"
 SUPPORTED_WALLPAPERS = ["kalitheme"]
+KALITHEME_PACKAGES_TXT = THEMES_DIR / "kalitheme" / "kalitheme-packages.txt"
 KALITHEME_WALLPAPERS_DIR = THEMES_DIR / "kalitheme" / "wallpapers"
 
-def PrivilegiesVerify() -> bool:
-    return os.geteuid() == 0
+def run_subprocess(command: list[str], sudo: bool = False, check: bool = True) -> subprocess.CompletedProcess:
+    if sudo:
+        command = ["sudo"] + command
 
-def _run_subprocess(command: list[str], check: bool = True) -> subprocess.CompletedProcess:
     logging.info(f"Running command: {' '.join(command)}")
+
     try:
         return subprocess.run(command, check=check, capture_output=True, text=True)
     except subprocess.CalledProcessError as e:
-        logging.error(f"Failed to run command: {' '.join(command)}")
-        logging.error(f"Error output:\n{e.stderr}")
-        raise e
+        logging.error(f"Command failed: {' '.join(command)}")
+        logging.error(e)
+        raise
     except FileNotFoundError:
-        logging.error(f"Command '{command[0]}' not found. Check if it is installed and in the PATH.")
+        logging.error(f"Command not found: {command[0]}")
         sys.exit(1)
-
-def build_command(base_command: list[str]) -> list[str]:
-    if not PrivilegiesVerify():
-        return ["sudo"] + base_command
-    return base_command
 
 def read_utilities_list(utilities_list_path: Path) -> list[str]:
     logging.info(f"Reading utilities list from '{utilities_list_path}'")
@@ -79,7 +81,7 @@ def needed_packages_check(packages_list: list) -> list:
 def installed_packages_check(packages_list: list) -> list:
     return [pkg for pkg in packages_list if subprocess.run(["pacman", "-Q", pkg], capture_output=True).returncode == 0]
 
-def InstallUtilities(utilities_list_path: Path):
+def install_utilities(utilities_list_path: Path):
     utilities = read_utilities_list(utilities_list_path)
     if not utilities:
         logging.warning("The utilities list is empty. No action will be taken.")
@@ -92,16 +94,15 @@ def InstallUtilities(utilities_list_path: Path):
         return
 
     logging.info(f"Installing utilities... (Packages to install: {', '.join(packages_to_install)})")
-    command = build_command(["pacman", "-S", "--noconfirm"] + packages_to_install)
     
     try:
-        _run_subprocess(command)
+        run_subprocess(["pacman", "-S", "--noconfirm"] + packages_to_install, True)
         logging.info(f"Utilities {', '.join(packages_to_install)} were successfully installed.")
     except subprocess.CalledProcessError:
         logging.error("Failed to install the utilities.")
         sys.exit(1)
 
-def UninstallUtilities(utilities_list_path: Path):
+def uninstall_utilities(utilities_list_path: Path):
     utilities = read_utilities_list(utilities_list_path)
     if not utilities:
         logging.warning("The utilities list is empty. No action will be taken.")
@@ -114,10 +115,9 @@ def UninstallUtilities(utilities_list_path: Path):
         return
 
     logging.info(f"Uninstalling utilities... (Packages to uninstall: {', '.join(packages_to_uninstall)})")
-    command = build_command(["pacman", "-Rns", "--noconfirm"] + packages_to_uninstall)
 
     try:
-        _run_subprocess(command)
+        run_subprocess(["pacman", "-Rns", "--noconfirm"] + packages_to_uninstall, True)
         logging.info(f"Utilities {', '.join(packages_to_uninstall)} were successfully uninstalled.")
     except subprocess.CalledProcessError:
         logging.error("Failed to uninstall the utilities.")
@@ -126,39 +126,54 @@ def UninstallUtilities(utilities_list_path: Path):
 def expand_path(path: Path) -> Path:
     return Path(os.path.expanduser(os.path.expandvars(str(path)))).resolve()
 
-def is_system_path(path: Path) -> bool:
-    system_paths = ['/etc', '/usr', '/root', '/var', '/boot']
-    return any(part in path.absolute().parts for part in system_paths)
+def safe_copy(src: Path, dst: Path) -> None:
+    src = expand_path(src)
+    dst = expand_path(dst)
 
-def safe_copy(src: Path, dst: Path):
+    dst.parent.mkdir(parents=True, exist_ok=True)
+
     try:
-        src = expand_path(src)
-        dst = expand_path(dst)
-        
-        dst.parent.mkdir(parents=True, exist_ok=True)
-
-        if is_system_path(dst) or not os.access(dst.parent, os.W_OK):
-            logging.info(f"Using sudo to copy {src} -> {dst}")
-            cmd = build_command(["cp", "-r", "--preserve=mode,timestamps", str(src), str(dst)])
-            _run_subprocess(cmd)
+        if src.is_dir():
+            shutil.copytree(src, dst, dirs_exist_ok=True, symlinks=True)
         else:
-            logging.info(f"Copying {src} -> {dst}")
-            if src.is_dir():
-                shutil.copytree(src, dst, dirs_exist_ok=True)
-            else:
-                shutil.copy2(src, dst)
-        return True
-    except Exception as e:
-        logging.error(f"Failed to copy: {src} -> {dst} ({e})")
-        return False
+            shutil.copy2(src, dst)
+    except PermissionError:
+        logging.info(f"Retrying with sudo: {src} -> {dst}")
+        run_subprocess(["cp", "-a", str(src), str(dst)], True)
+    except Exception:
+        pass
 
-def file_backup(path: Path):
+def create_backup(path: Path) -> None:
     expanded_path = expand_path(path)
+
+    if not expanded_path.exists():
+        return
+
+    counter = 1
     backup_path = expanded_path.with_suffix(expanded_path.suffix + ".old")
 
-    if expanded_path.exists():
-        logging.info(f"Creating backup of {expanded_path} to {backup_path}")
-        safe_copy(expanded_path, backup_path)
+    while backup_path.exists():
+        backup_path = expanded_path.with_suffix(
+            expanded_path.suffix + f".old.{counter}"
+        )
+        counter += 1
+
+    logging.info(f"Creating backup: {expanded_path} -> {backup_path}")
+    safe_copy(expanded_path, backup_path)
+
+def restore_from_backup(path: Path) -> None:
+    expanded_path = expand_path(path)
+
+    backups = list(expanded_path.parent.glob(expanded_path.name + ".old*"))
+    if not backups:
+        logging.warning(f"No backup found for: {expanded_path}")
+        return
+
+    backups.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+    latest_backup = backups[0]
+
+    logging.info(f"Restoring {latest_backup} -> {expanded_path}")
+    safe_copy(latest_backup, expanded_path)
 
 def config_apply(src: typing.Union[str, list], dst: typing.Union[str, list]):
     if isinstance(src, list) and isinstance(dst, list):
@@ -170,20 +185,6 @@ def config_apply(src: typing.Union[str, list], dst: typing.Union[str, list]):
     else:
         safe_copy(THEMES_DIR / str(src), Path(str(dst)))
 
-def restore_from_backup(path: Path):
-    expanded_path = expand_path(path)
-    backup_path = expanded_path.with_suffix(expanded_path.suffix + ".old")
-
-    if backup_path.exists():
-        logging.info(f"Restoring {backup_path} to {expanded_path}")
-        try:
-            safe_copy(backup_path, expanded_path)
-            logging.info(f"Backup from {backup_path} restored successfully.")
-        except Exception as e:
-            logging.error(f"Restore failed: {e}")
-    else:
-        logging.warning(f"No backup found for: {expanded_path}")
-
 def load_json_packages(json_path: Path) -> dict:
     try:
         with open(json_path, "r", encoding="utf-8") as file:
@@ -192,7 +193,7 @@ def load_json_packages(json_path: Path) -> dict:
         logging.critical(f"Failed to load {json_path}: {error}")
         sys.exit(1)
 
-def InstallKalitheme():
+def install_kalitheme():
     logging.info("Installing Kalitheme...")
     json_data = load_json_packages(PACKAGES_JSON)
     system_packages = json_data.get("System packages", {}).get("kalitheme", {})
@@ -203,7 +204,7 @@ def InstallKalitheme():
     if packages_to_install:
         logging.info(f"Packages to be installed: {', '.join(packages_to_install)}")
         KALITHEME_PACKAGES_TXT.write_text("\n".join(packages_to_install), encoding="utf-8")
-        InstallUtilities(KALITHEME_PACKAGES_TXT)
+        install_utilities(KALITHEME_PACKAGES_TXT)
     else:
         logging.info("All required packages are already installed.")
 
@@ -212,7 +213,7 @@ def InstallKalitheme():
         paths = [pkg_cfg] if isinstance(pkg_cfg, str) else pkg_cfg
         for path in paths:
             if path.strip():
-                file_backup(Path(path.strip()))
+                create_backup(Path(path.strip()))
 
     logging.info("[APPLYING SETTINGS]")
     for pkg, src_config in packages_configs.items():
@@ -223,7 +224,7 @@ def InstallKalitheme():
     
     logging.info("KaliTheme installed successfully! 🎉")
 
-def UninstallKalitheme():
+def uninstall_kalitheme():
     logging.info("Uninstalling Kalitheme...")
     json_data = load_json_packages(PACKAGES_JSON)
     system_packages = json_data.get("System packages", {}).get("kalitheme", {})
@@ -242,33 +243,36 @@ def UninstallKalitheme():
     if packages_to_uninstall:
         logging.info(f"Packages to be uninstalled: {', '.join(packages_to_uninstall)}")
         KALITHEME_PACKAGES_TXT.write_text("\n".join(packages_to_uninstall), encoding="utf-8")
-        UninstallUtilities(KALITHEME_PACKAGES_TXT)
+        uninstall_utilities(KALITHEME_PACKAGES_TXT)
     else:
         logging.info("No packages to uninstall.")
 
     logging.info("KaliTheme uninstalled successfully!")
 
 def dynamic_background(sec: int, mode: str, wallpapers_path_str: str, wallpapers_type: str):
+    if wallpapers_type not in SUPPORTED_WALLPAPERS:
+        logging.error(f"Wallpaper type not supported. Supported: {SUPPORTED_WALLPAPERS}")
+        sys.exit(1)
+
     if "feh" in needed_packages_check(["feh"]):
         logging.warning("feh not found. Installing...")
         try:
-            _run_subprocess(build_command(["pacman", "-S", "--noconfirm", "feh"]))
+            run_subprocess(["pacman", "-S", "--noconfirm", "feh"], True)
         except subprocess.CalledProcessError:
             logging.error("Could not install feh. Aborting.")
             sys.exit(1)
     
     wallpapers_path = expand_path(Path(wallpapers_path_str)) / wallpapers_type / "wallpapers"
     
-    if wallpapers_type not in SUPPORTED_WALLPAPERS:
-        logging.error(f"Wallpaper type not supported. Supported: {SUPPORTED_WALLPAPERS}")
-        sys.exit(1)
-
     logging.info(f"Copying wallpapers from '{KALITHEME_WALLPAPERS_DIR}' to '{wallpapers_path}'")
-    shutil.rmtree(wallpapers_path, ignore_errors=True)
-    shutil.copytree(KALITHEME_WALLPAPERS_DIR, wallpapers_path)
+    create_backup(wallpapers_path)
+    safe_copy(KALITHEME_WALLPAPERS_DIR, wallpapers_path)
 
-    subprocess.run(["pkill", "-f", ".dynamic_background.sh"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    
+    try:
+        run_subprocess(["pkill", "-f", ".dynamic_background.sh"], False, False)
+    except PermissionError:
+        run_subprocess(["pkill", "-f", ".dynamic_background.sh"], True, False)
+
     script_path = expand_path(Path("~/.dynamic_background.sh"))
     script_content = f"""#!/bin/bash
 # Auto-generated by AutoKALI
@@ -319,17 +323,17 @@ def main():
 
     p_install = subparsers.add_parser("install-utilities", help="Install utilities from a list.")
     p_install.add_argument("utilities_list", type=Path, help="Path to the .txt file with the list of utilities.")
-    p_install.set_defaults(func=lambda args: InstallUtilities(args.utilities_list))
+    p_install.set_defaults(func=lambda args: install_utilities(args.utilities_list))
 
     p_uninstall = subparsers.add_parser("uninstall-utilities", help="Uninstall utilities from a list.")
     p_uninstall.add_argument("utilities_list", type=Path, help="Path to the .txt file with the list of utilities.")
-    p_uninstall.set_defaults(func=lambda args: UninstallUtilities(args.utilities_list))
+    p_uninstall.set_defaults(func=lambda args: uninstall_utilities(args.utilities_list))
 
     p_install_theme = subparsers.add_parser("install-kalitheme", help="Apply the Kali theme.")
-    p_install_theme.set_defaults(func=lambda args: InstallKalitheme())
+    p_install_theme.set_defaults(func=lambda args: install_kalitheme())
     
     p_uninstall_theme = subparsers.add_parser("uninstall-kalitheme", help="Remove the Kali theme and restore backups.")
-    p_uninstall_theme.set_defaults(func=lambda args: UninstallKalitheme())
+    p_uninstall_theme.set_defaults(func=lambda args: uninstall_kalitheme())
 
     p_dynamic_bg = subparsers.add_parser("dynamic-background", help="Set up a dynamic wallpaper.")
     p_dynamic_bg.add_argument("sec", type=int, help="Seconds between wallpaper changes.")

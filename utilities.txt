@@ -1,3 +1,7 @@
 nmap
 mitmproxy
-wireshark
+wireshark-qt
+gobuster
+htop
+wpscan
+hakrawler
